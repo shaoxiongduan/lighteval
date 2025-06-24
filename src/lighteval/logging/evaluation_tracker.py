@@ -30,6 +30,7 @@ from datetime import datetime
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict
 
 import torch
 from datasets import Dataset, load_dataset
@@ -81,6 +82,9 @@ class EnhancedJSONEncoder(json.JSONEncoder):
             return str(o)
         if isinstance(o, Enum):
             return o.name
+        # Handle TokenLogitsProcessor and other logits processors
+        if hasattr(o, '__class__') and 'LogitsProcessor' in o.__class__.__name__:
+            return f"<{o.__class__.__name__} with {len(getattr(o, 'token_id_boosts', {}))} token boosts>"
         return super().default(o)
 
 

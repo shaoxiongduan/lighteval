@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
+from typing import Any
 from pydantic import BaseModel, NonNegativeFloat, NonNegativeInt
 
 
@@ -45,6 +45,9 @@ class GenerationParameters(BaseModel, extra="forbid"):
     # response format to be followed by the model,
     # more info here https://platform.openai.com/docs/api-reference/chat/create#chat-create-response_format
     response_format: str | None = None  # inference_providers
+    
+    # logits processors for vllm - stored separately since they're not serializable
+    logits_processors: list[Any] | None = None  # vllm
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -144,7 +147,14 @@ class GenerationParameters(BaseModel, extra="forbid"):
 
         # Task specific sampling params to set in model: n, best_of, use_beam_search
         # Generation specific params to set in model: logprobs, prompt_logprobs
-        x = {sampling_params_to_vllm_naming.get(k, k): v for k, v in self.model_dump().items() if v is not None}
+        # Exclude logits_processors from model_dump since they're not serializable
+        model_data = {k: v for k, v in self.model_dump().items() if k != "logits_processors"}
+        x = {sampling_params_to_vllm_naming.get(k, k): v for k, v in model_data.items() if v is not None}
+        
+        # Add logits_processors separately if they exist
+        if self.logits_processors is not None:
+            x["logits_processors"] = self.logits_processors
+            
         # VLLM max_tokens is 16 by default, however the pipeline expect the max_tokens to be None, if the user didn't specify it
         if not x.get("max_tokens"):
             x["max_tokens"] = None
