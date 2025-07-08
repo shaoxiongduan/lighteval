@@ -42,6 +42,10 @@ class GenerationParameters(BaseModel, extra="forbid"):
     top_p: NonNegativeFloat | None = None  # vllm, transformers, tgi, litellm, sglang
     truncate_prompt: bool | None = None  # vllm, tgi
 
+    # vLLM logprobs parameters for entropy analysis
+    logprobs: NonNegativeInt | None = None  # vllm - number of log probabilities to return per output token
+    prompt_logprobs: NonNegativeInt | None = None  # vllm - number of log probabilities to return per prompt token
+
     # response format to be followed by the model,
     # more info here https://platform.openai.com/docs/api-reference/chat/create#chat-create-response_format
     response_format: str | None = None  # inference_providers

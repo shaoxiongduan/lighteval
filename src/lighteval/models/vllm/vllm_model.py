@@ -304,13 +304,32 @@ class VLLMModel(LightevalModel):
             for vllm_output in vllm_outputs:
                 output_token_ids = [outputs.token_ids for outputs in vllm_output.outputs]
                 logprobs = [output.logprobs for output in vllm_output.outputs] or []
-                logprobs = [logprob[token_id].logprob for token_id, logprob in zip(output_token_ids[0], logprobs[0])]
+                
+                # For entropy analysis, preserve full logprobs distribution if logprobs > 0
+                if logprobs and logprobs[0] and len(logprobs[0]) > 0:
+                    # Check if we have full logprobs (for entropy analysis)
+                    sampling_params = SamplingParams(**self._config.generation_parameters.to_vllm_dict())
+                    if hasattr(sampling_params, 'logprobs') and sampling_params.logprobs and sampling_params.logprobs > 0:
+                        # Preserve full logprobs structure for entropy analysis
+                        # Convert to format: [{token_id: logprob, ...}, ...]
+                        full_logprobs = []
+                        for token_logprobs in logprobs[0]:
+                            if token_logprobs:
+                                token_logprob_dict = {str(token_id): logprob.logprob for token_id, logprob in token_logprobs.items()}
+                                full_logprobs.append(token_logprob_dict)
+                        processed_logprobs = full_logprobs
+                    else:
+                        # Original behavior: only selected token's logprob
+                        processed_logprobs = [logprob[token_id].logprob for token_id, logprob in zip(output_token_ids[0], logprobs[0])]
+                else:
+                    processed_logprobs = []
+                
                 result = [output.text for output in vllm_output.outputs]
                 input_token_ids = vllm_output.prompt_token_ids
 
                 cur_response = GenerativeResponse(
                     result=result,
-                    logits=logprobs,
+                    logits=processed_logprobs,
                     generated_tokens=list(output_token_ids),
                     input_tokens=input_token_ids,
                 )
@@ -334,7 +353,9 @@ class VLLMModel(LightevalModel):
             sampling_params.n = num_samples
             sampling_params.max_tokens = max_new_tokens
             sampling_params.stop = stop_tokens
-            sampling_params.logprobs = 1 if returns_logits else 0
+            # Only override logprobs if it's not already set to a meaningful value in generation parameters
+            if not hasattr(sampling_params, 'logprobs') or sampling_params.logprobs is None or sampling_params.logprobs <= 0:
+                sampling_params.logprobs = 1 if returns_logits else 0
 
         else:
             sampling_params.temperature = 0
@@ -502,7 +523,9 @@ class AsyncVLLMModel(VLLMModel):
                 )
             sampling_params.max_tokens = self._config.generation_parameters.max_new_tokens or request.generation_size
             sampling_params.stop = [] if self.use_chat_template else request.stop_sequence
-            sampling_params.logprobs = int(request.use_logits)
+            # Only override logprobs if it's not already set to a meaningful value in generation parameters
+            if not hasattr(sampling_params, 'logprobs') or sampling_params.logprobs is None or sampling_params.logprobs <= 0:
+                sampling_params.logprobs = 1 if request.use_logits else 0
             prompt = request.context
             index = f"generative_{index}"
 
@@ -547,13 +570,32 @@ class AsyncVLLMModel(VLLMModel):
         for response in responses:
             output_token_ids = [outputs.token_ids for outputs in response.outputs]
             full_logprobs = [output.logprobs for output in response.outputs] or []
-            logprobs = [logprob[token_id].logprob for token_id, logprob in zip(output_token_ids[0], full_logprobs[0])]
+            
+            # For entropy analysis, preserve full logprobs distribution if logprobs > 0
+            if full_logprobs and full_logprobs[0] and len(full_logprobs[0]) > 0:
+                # Check if we have full logprobs (for entropy analysis)
+                sampling_params = SamplingParams(**self._config.generation_parameters.to_vllm_dict())
+                if hasattr(sampling_params, 'logprobs') and sampling_params.logprobs and sampling_params.logprobs > 0:
+                    # Preserve full logprobs structure for entropy analysis
+                    # Convert to format: [{token_id: logprob, ...}, ...]
+                    full_logprobs_processed = []
+                    for token_logprobs in full_logprobs[0]:
+                        if token_logprobs:
+                            token_logprob_dict = {str(token_id): logprob.logprob for token_id, logprob in token_logprobs.items()}
+                            full_logprobs_processed.append(token_logprob_dict)
+                    processed_logprobs = full_logprobs_processed
+                else:
+                    # Original behavior: only selected token's logprob
+                    processed_logprobs = [logprob[token_id].logprob for token_id, logprob in zip(output_token_ids[0], full_logprobs[0])]
+            else:
+                processed_logprobs = []
+            
             result = [output.text for output in response.outputs]
             input_token_ids = response.prompt_token_ids
 
             cur_response = GenerativeResponse(
                 result=result,
-                logits=logprobs,
+                logits=processed_logprobs,
                 generated_tokens=list(output_token_ids),
                 input_tokens=input_token_ids,
             )
